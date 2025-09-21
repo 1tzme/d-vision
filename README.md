@@ -1,8 +1,22 @@
 # D-Vision
 
 ## Overview
-This project demonstrates how to connect to a PostgreSQL database with Python, run SQL queries, and save results into CSV files.  
-Main script: `main.py`.
+This project demonstrates how to build a small analytics pipeline using a **synthetic financial dataset** that simulates a banking system.  
+The dataset includes **50k+ rows** across multiple related tables:
+
+- **Customers**  
+- **Accounts**  
+- **Loans**  
+- **Transactions**  
+- **Reference tables** (loan statuses, account types, etc.)
+
+The dataset: https://www.kaggle.com/datasets/testdatabox/finance-fraud-and-loans-dataset-testdatabox
+
+You can read more about dataset in `dataset/readme.md`
+
+## ER Diagram
+
+![ERD](erd/erd.png)
 
 ## Requirements
 - Python 3.10+
