@@ -1,165 +1,95 @@
-from dotenv import load_dotenv
-import os
-import psycopg2
-import csv
+# pip install requests flask prometheus-client
+import time
+import requests
+from threading import Thread
+from flask import Flask, Response
+from prometheus_client import Gauge, generate_latest, REGISTRY
 
-# laod variables from .env
-load_dotenv()
+# Настройки
+SUBREDDIT = "technology"  # можно заменить на любой саб
+POLL_INTERVAL = 3  # каждые 3 секунды
 
-# connection to db
-conn = psycopg2.connect(
-    dbname=os.getenv("DB_NAME"),
-    user=os.getenv("DB_USER"),
-    password=os.getenv("DB_PASSWORD"),
-    host=os.getenv("DB_HOST")
-)
-cur = conn.cursor()
+# Метрики Reddit
+reddit_subscribers = Gauge('reddit_subscribers', 'Number of subreddit subscribers', ['subreddit'])
+reddit_active_users = Gauge('reddit_active_users', 'Number of currently active users', ['subreddit'])
+reddit_posts_last = Gauge('reddit_posts_last_fetch', 'Number of posts fetched last cycle', ['subreddit'])
+reddit_avg_score = Gauge('reddit_avg_score', 'Average score (upvotes - downvotes) for fetched posts', ['subreddit'])
+reddit_avg_comments = Gauge('reddit_avg_comments', 'Average number of comments per post', ['subreddit'])
+reddit_total_upvotes = Gauge('reddit_total_upvotes', 'Total upvotes for fetched posts', ['subreddit'])
+reddit_total_downvotes = Gauge('reddit_total_downvotes', 'Estimated downvotes (approximation)', ['subreddit'])
+reddit_top_post_score = Gauge('reddit_top_post_score', 'Score of top post in current batch', ['subreddit'])
+reddit_top_post_comments = Gauge('reddit_top_post_comments', 'Number of comments on top post', ['subreddit'])
+reddit_post_title_length_avg = Gauge('reddit_post_title_length_avg', 'Average title length of posts', ['subreddit'])
+reddit_post_title_length_max = Gauge('reddit_post_title_length_max', 'Max title length among posts', ['subreddit'])
+reddit_exporter_up = Gauge('up', 'Exporter status: 1 = healthy, 0 = error')
+reddit_exporter_last_scrape = Gauge('reddit_exporter_last_scrape_unix', 'Unix timestamp of last successful scrape')
 
-def run_query(query, filename):
-    cur.execute(query)
-    rows = cur.fetchall()
-    colnames = [desc[0] for desc in cur.description]
+app = Flask(__name__)
 
-    # output in terminal
-    print(f"\n=== {filename} ===")
-    for row in rows:
-        print(row)
+def fetch_reddit_data(subreddit):
+    """Получает данные о сабреддите и его последних постах."""
+    base = f"https://www.reddit.com/r/{subreddit}/"
+    headers = {"User-Agent": "PrometheusRedditExporter/1.0"}
+    info = requests.get(base + "about.json", headers=headers, timeout=5)
+    posts = requests.get(base + "new.json?limit=50", headers=headers, timeout=5)
+    info.raise_for_status()
+    posts.raise_for_status()
+    return info.json(), posts.json()
 
-    # save to csv
-    with open(f"{filename}.csv", "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(colnames)
-        writer.writerows(rows)
+def scrape_loop():
+    while True:
+        try:
+            info, posts = fetch_reddit_data(SUBREDDIT)
+            data = info.get("data", {})
+            posts_data = posts.get("data", {}).get("children", [])
 
-# num of customers
-query1 = "SELECT COUNT(*) AS customers_count FROM customers;"
+            subreddit = data.get("display_name", SUBREDDIT)
+            subs = data.get("subscribers", 0)
+            active = data.get("active_user_count", 0)
+            reddit_subscribers.labels(subreddit=subreddit).set(subs)
+            reddit_active_users.labels(subreddit=subreddit).set(active)
 
-# average balance by account type
-query2 = """
-SELECT account_type_id, AVG(balance) AS avg_balance
-    FROM accounts
-    GROUP BY account_type_id
-"""
+            if posts_data:
+                scores = [p["data"].get("score", 0) for p in posts_data]
+                comments = [p["data"].get("num_comments", 0) for p in posts_data]
+                titles = [p["data"].get("title", "") for p in posts_data]
 
-# number of credits by status (#2 in queries/testing/queries.sql)
-query3 = """
-SELECT ls.loan_status_id,
-    ls.status_name,
-    COUNT(l.loan_id) AS loans_count,
-    SUM(l.principal_amount)::numeric(18,2) AS loans_sum
-FROM loans l
-LEFT JOIN loan_statuses ls ON l.loan_status_id = ls.loan_status_id
-GROUP BY ls.loan_status_id, ls.status_name
-ORDER BY loans_count DESC;
-"""
+                avg_score = sum(scores) / len(scores)
+                avg_comments = sum(comments) / len(comments)
+                total_upvotes = sum(scores)
+                estimated_downvotes = total_upvotes * 0.15
+                top_post = max(posts_data, key=lambda x: x["data"].get("score", 0))["data"]
+                top_score = top_post.get("score", 0)
+                top_comments = top_post.get("num_comments", 0)
+                avg_title_len = sum(len(t) for t in titles) / len(titles)
+                max_title_len = max(len(t) for t in titles)
 
-# top 10 customers by number of transactions (#8 in queries/testing/queries.sql)
-query4 = """
-SELECT c.customer_id,
-    c.first_name,
-    c.last_name,
-    COUNT(t.transaction_id) AS transactions_count
-FROM customers c
-JOIN accounts a ON a.customer_id = c.customer_id
-JOIN transactions t ON (t.account_origin_id = a.account_id OR t.account_destination_id = a.account_id)
-GROUP BY c.customer_id, c.first_name, c.last_name
-ORDER BY transactions_count DESC
-LIMIT 10;
-"""
+                reddit_posts_last.labels(subreddit=subreddit).set(len(posts_data))
+                reddit_avg_score.labels(subreddit=subreddit).set(avg_score)
+                reddit_avg_comments.labels(subreddit=subreddit).set(avg_comments)
+                reddit_total_upvotes.labels(subreddit=subreddit).set(total_upvotes)
+                reddit_total_downvotes.labels(subreddit=subreddit).set(estimated_downvotes)
+                reddit_top_post_score.labels(subreddit=subreddit).set(top_score)
+                reddit_top_post_comments.labels(subreddit=subreddit).set(top_comments)
+                reddit_post_title_length_avg.labels(subreddit=subreddit).set(avg_title_len)
+                reddit_post_title_length_max.labels(subreddit=subreddit).set(max_title_len)
 
-query5 = """
-SELECT account_types.account_type_id,
-       account_types.type_name,
-       AVG(a.balance)::numeric(18,2) AS avg_balance,
-       COUNT(a.account_id) AS accounts_count
-FROM accounts a
-LEFT JOIN account_types account_types ON a.account_type_id = account_types.account_type_id
-GROUP BY account_types.account_type_id, account_types.type_name
-ORDER BY avg_balance DESC;
-"""
+            reddit_exporter_up.set(1)
+            reddit_exporter_last_scrape.set(int(time.time()))
 
-query6 = """
-SELECT to_char(date_trunc('month', t.transaction_date), 'YYYY-MM') AS year_month,
-       COUNT(*) AS tx_count,
-       SUM(t.amount)::numeric(18,2) AS tx_sum
-FROM transactions t
-WHERE t.transaction_date >= date_trunc('month', CURRENT_DATE) - INTERVAL '11 months'
-GROUP BY 1
-ORDER BY 1;
-"""
+            print(f"[OK] {time.strftime('%H:%M:%S')} r/{SUBREDDIT}: {len(posts_data)} posts, {subs} subs")
+        except Exception as e:
+            print(f"[ERROR] {time.strftime('%H:%M:%S')} {e}")
+            reddit_exporter_up.set(0)
+        time.sleep(POLL_INTERVAL)
 
-query7 = """
-SELECT tt.transaction_type_id,
-       tt.type_name,
-       COUNT(t.transaction_id) AS tx_count,
-       AVG(t.amount)::numeric(18,2) AS avg_amount,
-       percentile_cont(0.5) WITHIN GROUP (ORDER BY t.amount)::numeric(18,2) AS median_amount
-FROM transactions t
-LEFT JOIN transaction_types tt ON t.transaction_type_id = tt.transaction_type_id
-GROUP BY tt.transaction_type_id, tt.type_name
-ORDER BY avg_amount DESC;
-"""
+@app.route('/metrics')
+def metrics():
+    """Эндпоинт для Prometheus."""
+    return Response(generate_latest(REGISTRY), mimetype='text/plain; version=0.0.4; charset=utf-8')
 
-query8 = """
-SELECT c.customer_id,
-       COALESCE(c.first_name || ' ' || c.last_name, c.customer_id::text) AS customer_name,
-       COUNT(a.account_id) AS accounts_count,
-       SUM(a.balance)::numeric(18,2) AS total_balance
-FROM customers c
-JOIN accounts a ON c.customer_id = a.customer_id
-GROUP BY c.customer_id, customer_name
-HAVING COUNT(a.account_id) > 1
-ORDER BY total_balance DESC;
-"""
-
-query9 = """
-SELECT a.account_id,
-       a.customer_id,
-       COALESCE(c.first_name || ' ' || c.last_name, c.customer_id::text) AS customer_name,
-       a.balance::numeric(18,2) AS balance,
-       ast.status_name
-FROM accounts a
-LEFT JOIN account_statuses ast ON a.account_status_id = ast.account_status_id
-LEFT JOIN customers c ON a.customer_id = c.customer_id
-WHERE a.balance < 0
-  AND LOWER(ast.status_name) IN ('active', 'opened', 'open')
-ORDER BY a.balance ASC;
-"""
-
-query10 = """
-SELECT at.type_name,
-       COUNT(a.account_id) AS accounts_count,
-       AVG(a.balance) AS avg_balance,
-       MIN(a.balance) AS min_balance,
-       MAX(a.balance) AS max_balance
-FROM accounts a
-JOIN account_types at ON a.account_type_id = at.account_type_id
-GROUP BY at.type_name
-ORDER BY avg_balance DESC;
-"""
-
-query11 = """
-SELECT ls.status_name,
-       COUNT(l.loan_id) AS loans_count,
-       SUM(l.principal_amount) AS total_principal,
-       AVG(l.principal_amount) AS avg_principal
-FROM loans l
-JOIN loan_statuses ls ON l.loan_status_id = ls.loan_status_id
-GROUP BY ls.status_name
-ORDER BY loans_count DESC;
-"""
-
-run_query(query1, "customer_count")
-run_query(query2, "avg_balance_per_acc_type")
-run_query(query3, "loans_stats")
-run_query(query4, "top10_customer_transactions")
-run_query(query5, "test1")
-run_query(query6, "test2")
-run_query(query7, "test3")
-run_query(query8, "test4")
-run_query(query9, "test5")
-run_query(query10, "test6")
-run_query(query11, "test7")
-
-cur.close()
-conn.close()
+if __name__ == '__main__':
+    print(f"Starting Reddit exporter for r/{SUBREDDIT}, updates every {POLL_INTERVAL}s")
+    t = Thread(target=scrape_loop, daemon=True)
+    t.start()
+    app.run(host='localhost', port=8000)

@@ -1,0 +1,159 @@
+{
+    "id": null,
+    "uid": "reddit-metrics-dashboard",
+    "title": "Reddit Metrics Dashboard",
+    "tags": [ "reddit", "prometheus", "social-media" ],
+    "timezone": "browser",
+    "schemaVersion": 36,
+    "version": 1,
+    "editable": true,
+    "graphTooltip": 1,
+    "refresh": "10s",
+    "time": { "from": "now-1h", "to": "now" },
+    "annotations": {
+        "list": [
+            {
+                "builtIn": 1,
+                "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+                "enable": true,
+                "hide": true,
+                "iconColor": "rgba(0, 211, 255, 1)",
+                "name": "Annotations & Alerts",
+                "type": "dashboard"
+            }
+        ]
+    },
+    "templating": {
+        "list": [
+            {
+                "name": "interval",
+                "type": "interval",
+                "query": "10s,30s,1m,5m,10m,30m,1h",
+                "current": { "text": "1m", "value": "1m" },
+                "auto": false
+            },
+            {
+                "name": "subreddit",
+                "type": "query",
+                "datasource": { "type": "prometheus", "uid": "prometheus" },
+                "query": "label_values(reddit_subscribers, subreddit)",
+                "refresh": 1,
+                "multi": true,
+                "includeAll": true,
+                "current": { "text": "All", "value": "$__all" }
+            }
+        ]
+    },
+    "panels": [
+        {
+            "id": 1,
+            "title": "Active Users vs Subscribers (Gauge)",
+            "type": "gauge",
+            "gridPos": { "x": 0, "y": 0, "w": 6, "h": 8 },
+            "targets": [
+                { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "reddit_active_users{subreddit=~\"$subreddit\"}", "legendFormat": "Active Users", "refId": "A" }
+            ],
+            "options": { "showThresholdLabels": false, "showThresholdMarkers": true },
+            "fieldConfig": { "defaults": { "unit": "short", "thresholds": { "mode": "absolute", "steps": [ { "value": 0, "color": "red" }, { "value": 100, "color": "yellow" }, { "value": 500, "color": "green" } ] }, "max": 10000 }, "overrides": [ ] }
+        },
+        {
+            "id": 2,
+            "title": "Total Subscribers (Stat)",
+            "type": "stat",
+            "gridPos": { "x": 6, "y": 0, "w": 6, "h": 8 },
+            "targets": [
+                { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "reddit_subscribers{subreddit=~\"$subreddit\"}", "legendFormat": "{{subreddit}}", "refId": "A" }
+            ],
+            "options": { "graphMode": "area", "colorMode": "background", "orientation": "auto", "textMode": "value_and_name" },
+            "fieldConfig": { "defaults": { "unit": "short", "decimals": 0, "thresholds": { "mode": "absolute", "steps": [ { "value": 0, "color": "blue" }, { "value": 100000, "color": "green" }, { "value": 1000000, "color": "red" } ] } }, "overrides": [ ] }
+        },
+        {
+            "id": 3,
+            "title": "Engagement Rate (%) - Calculated",
+            "type": "timeseries",
+            "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+            "targets": [
+                { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "(reddit_active_users{subreddit=~\"$subreddit\"} / reddit_subscribers{subreddit=~\"$subreddit\"}) * 100", "legendFormat": "{{subreddit}} Engagement %", "refId": "A" }
+            ]
+        },
+        {
+            "id": 4,
+            "title": "Average Post Score Over Time",
+            "type": "timeseries",
+            "gridPos": { "x": 0, "y": 8, "w": 12, "h": 9 },
+            "targets": [
+                { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "avg_over_time(reddit_avg_score{subreddit=~\"$subreddit\"}[$interval])", "legendFormat": "{{subreddit}} - Avg Score ($interval)", "refId": "A" },
+                { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "deriv(reddit_avg_score{subreddit=~\"$subreddit\"}[$interval])", "legendFormat": "{{subreddit}} - Score Derivative", "refId": "B" }
+            ]
+        },
+        {
+            "id": 5,
+            "title": "Comments Distribution",
+            "type": "timeseries",
+            "gridPos": { "x": 12, "y": 8, "w": 12, "h": 9 },
+            "targets": [
+                { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "reddit_avg_comments{subreddit=~\"$subreddit\"}", "legendFormat": "{{subreddit}} - Avg Comments", "refId": "A" },
+                { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "reddit_top_post_comments{subreddit=~\"$subreddit\"}", "legendFormat": "{{subreddit}} - Top Post Comments", "refId": "B" }
+            ]
+        },
+        {
+            "id": 6,
+            "title": "Upvotes vs Downvotes Ratio",
+            "type": "timeseries",
+            "gridPos": { "x": 0, "y": 17, "w": 12, "h": 9 },
+            "targets": [
+                { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "reddit_total_upvotes{subreddit=~\"$subreddit\"} / (reddit_total_downvotes{subreddit=~\"$subreddit\"} + 1)", "legendFormat": "{{subreddit}} - Upvote/Downvote Ratio", "refId": "A" },
+                { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "increase(reddit_total_upvotes{subreddit=~\"$subreddit\"}[$interval])", "legendFormat": "{{subreddit}} - Upvote Increase ($interval)", "refId": "B" }
+            ]
+        },
+        {
+            "id": 7,
+            "title": "Top Post Performance",
+            "type": "timeseries",
+            "gridPos": { "x": 12, "y": 17, "w": 12, "h": 9 },
+            "targets": [
+                { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "reddit_top_post_score{subreddit=~\"$subreddit\"}", "legendFormat": "{{subreddit}} - Top Post Score", "refId": "A" },
+                { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "rate(reddit_top_post_score{subreddit=~\"$subreddit\"}[$interval])", "legendFormat": "{{subreddit}} - Score Rate of Change", "refId": "B" }
+            ]
+        },
+        {
+            "id": 8,
+            "title": "Title Lengths",
+            "type": "stat",
+            "gridPos": { "x": 0, "y": 26, "w": 8, "h": 9 },
+            "targets": [
+                { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "reddit_post_title_length_avg{subreddit=~\"$subreddit\"}", "legendFormat": "{{subreddit}} - Avg Length", "refId": "A", "instant": true }
+            ]
+        },
+        {
+            "id": 9,
+            "title": "Posts Volume",
+            "type": "timeseries",
+            "gridPos": { "x": 8, "y": 26, "w": 8, "h": 9 },
+            "targets": [
+                { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "reddit_posts_last{subreddit=~\"$subreddit\"}", "legendFormat": "{{subreddit}} - Posts Count", "refId": "A" },
+                { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "avg_over_time(reddit_posts_last{subreddit=~\"$subreddit\"}[5m])", "legendFormat": "{{subreddit}} - 5min Moving Avg", "refId": "B" }
+            ]
+        },
+        {
+            "id": 10,
+            "title": "Reddit Exporter Health",
+            "type": "stat",
+            "gridPos": { "x": 16, "y": 26, "w": 8, "h": 9 },
+            "targets": [
+                { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "reddit_exporter_up", "legendFormat": "Exporter Up", "refId": "A" },
+                { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "time() - reddit_exporter_last_scrape_unix", "legendFormat": "Seconds Since Last Scrape", "refId": "B" }
+            ]
+        },
+        {
+            "id": 11,
+            "title": "Engagement Correlation",
+            "type": "timeseries",
+            "gridPos": { "x": 0, "y": 35, "w": 24, "h": 9 },
+            "targets": [
+                { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (subreddit) (reddit_avg_score{subreddit=~\"$subreddit\"} * reddit_avg_comments{subreddit=~\"$subreddit\"})", "legendFormat": "{{subreddit}} - Score×Comments Product", "refId": "A" },
+                { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "clamp_max(reddit_active_users{subreddit=~\"$subreddit\"} / 100, 1000)", "legendFormat": "{{subreddit}} - Normalized Active Users", "refId": "B" }
+            ]
+        }
+    ]
+}
