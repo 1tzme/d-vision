@@ -1,0 +1,5 @@
+# Models
+*.ply
+*.obj
+*.stl
+*.mtl
