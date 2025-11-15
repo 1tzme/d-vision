@@ -6,7 +6,7 @@ import copy
 # CONFIGURATION: Set model path here
 # ========================================
 MODEL_PATH = "models/model.ply"
-
+# recommended to use .ply format
 
 def print_separator(step_number, step_name):
     """Print separator between steps"""
@@ -17,9 +17,12 @@ def print_separator(step_number, step_name):
 
 def print_mesh_info(mesh, step_name="Mesh"):
     """Print mesh information"""
+    bbox = mesh.get_axis_aligned_bounding_box()
+    extent = bbox.get_extent()
     print(f"\n{step_name}:")
     print(f"  Number of vertices: {len(mesh.vertices)}")
     print(f"  Number of triangles: {len(mesh.triangles)}")
+    print(f"  Bounding box size: X={extent[0]:.4f}, Y={extent[1]:.4f}, Z={extent[2]:.4f}")
     print(f"  Has vertex colors: {'Yes' if mesh.has_vertex_colors() else 'No'}")
     print(f"  Has vertex normals: {'Yes' if mesh.has_vertex_normals() else 'No'}")
 
@@ -135,8 +138,18 @@ def step3_surface_reconstruction(pcd):
 def step4_voxelization(pcd):
     print_separator(4, "Voxelization")
     
-    voxel_size = 0.05
-    print(f"\nCreating voxel grid with voxel size = {voxel_size}")
+    # Adaptive voxel size based on model dimensions
+    bbox = pcd.get_axis_aligned_bounding_box()
+    extent = bbox.get_extent()
+    max_dimension = max(extent)
+    
+    # Use 1/100 of the largest dimension for good detail
+    voxel_size = max_dimension / 100.0
+    
+    print(f"\nModel bounding box extent: {extent}")
+    print(f"Max dimension: {max_dimension:.4f}")
+    print(f"Auto-calculated voxel size: {voxel_size:.6f}")
+    print(f"Creating voxel grid...")
     
     voxel_grid = o3d.geometry.VoxelGrid.create_from_point_cloud(pcd, voxel_size=voxel_size)
     
